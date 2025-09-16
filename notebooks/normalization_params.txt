@@ -1,0 +1,39 @@
+MR Image Normalization Parameters
+==================================================
+
+GLOBAL MINMAX:
+min_val = 0.000000
+max_val = 3000.000000
+# Global min-max (sensitive to outliers)
+# Use case: When you need full dynamic range
+
+PERCENTILE 99:
+min_val = 0.055688
+max_val = 1540.399536
+# 1st-99th percentile (robust)
+# Use case: Recommended for most MR applications
+
+PERCENTILE 95:
+min_val = 0.574499
+max_val = 1029.918695
+# 5th-95th percentile (very robust)
+# Use case: When images have significant noise/artifacts
+
+IQR EXTENDED:
+min_val = -489.549745
+max_val = 827.669398
+# IQR ± 1.5×IQR (outlier detection method)
+# Use case: Statistical outlier removal
+
+MEAN 3STD:
+min_val = 0.000000
+max_val = 1263.859067
+# Mean ± 3 standard deviations
+# Use case: Assumes normal distribution
+
+MEDIAN 2STD:
+min_val = 0.000000
+max_val = 779.446071
+# Median ± 2 standard deviations
+# Use case: Robust center with controlled range
+
