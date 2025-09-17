@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="bd10aa05-a555-4926-82b4-cac38d1594d4" name="rolf.ifi.uzh.ch">
+        <fileTransfer rootFolder="/home/user/jverhoek" accessType="SFTP" host="rolf.ifi.uzh.ch" port="22" sshConfigId="2b21e3a5-1b38-4e5f-87ad-b47382898610" sshConfig="jverhoek@rolf.ifi.uzh.ch:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
