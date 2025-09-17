@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import random
 
 import numpy as np
 import pandas as pd
@@ -26,16 +27,8 @@ from utils.processing_utils import (
 from utils.path_utils import create_output_dirs
 
 
-DIR_PELVIS = os.path.join(os.getcwd(), "data", "Task1", "pelvis")
+DIR_PELVIS = "/local/scratch/jverhoek/datasets/Task1/pelvis/"
 DIR_OUTPUT = os.path.join(os.getcwd(), "output", "nifti")
-DIR_LABELS = os.path.join(os.getcwd(), "labels")
-FILE_MISSING = os.path.join(DIR_LABELS, "missing_Ömer.txt")
-LABELS_RAW = os.path.join(DIR_LABELS, "labels_raw.json")
-
-NYUL_MIN_VALUE = 0
-NYUL_MAX_VALUE = 255
-NYUL_MIN_PERCENTILE = 1
-NYUL_MAX_PERCENTILE = 99
 
 
 DELTA=250
@@ -43,75 +36,96 @@ DELTA=250
 THRESH_MR_MASK = 0.1
 
 
-
-
+EXCEL_OVERVIEW = "/local/scratch/jverhoek/datasets/Task1/pelvis/overview/1_pelvis_train.xlsx"
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
-    df_overview = pd.read_excel("/home/user/lyeyang/projects/sct-ood-dataset/data/Task1/pelvis/overview/1_pelvis_train.xlsx",
-                            sheet_name="MR",)
-    
+    # fractions for val/test
+    val_frac = 0.1
+    test_frac = 0.2
+
+    # --- Load overview Excel ---
+    df_overview = pd.read_excel(EXCEL_OVERVIEW, sheet_name="MR")
     ids_all = df_overview["ID"].tolist()
-    ids_all = [i for i in ids_all if i.startswith("1PA")]
+    ids_all = [i for i in ids_all if i.startswith("1PA")]  # pelvis only
 
-    with open("/home/user/lyeyang/projects/sct-ood-dataset/labels/labels_raw.json") as f:
-        data = json.load(f)
+    # --- Load implant labels (type1 anomalies) ---
+    with open("/home/user/jverhoek/sct-ood-dataset/labels/labels_implant.json") as f:
+        data_implant = json.load(f)
 
-    data_abnormal = data['type1']
-
-    ids_abnormal = [list(item.keys())[0] for item in data['type1']]
-    ids_abnormal = [i for i in ids_abnormal if i.startswith("1PA")] # TODO:
-
+    data_abnormal = data_implant['type1']
     df_labels_1 = pd.DataFrame([
-        {"id": k, **v} 
-        for item in data_abnormal 
+        {"id": k, **v}
+        for item in data_abnormal
         for k, v in item.items()
     ])
-    list_na_ids = df_labels_1[df_labels_1.isna().any(axis=1)]['id'].tolist()
 
+    # filter pelvis only, drop NAs
+    list_na_ids = df_labels_1[df_labels_1.isna().any(axis=1)]['id'].tolist()
     df_labels_1 = df_labels_1.dropna()
     df_labels_1 = df_labels_1[df_labels_1['body_part'] == 'pelvis']
 
+    # compute anomaly ranges
     df_labels_1["anomaly_start"] = df_labels_1[["ct_start", "mr_start"]].min(axis=1)
     df_labels_1["anomaly_end"] = df_labels_1[["ct_end", "mr_end"]].max(axis=1)
-
-    anomaly_range = {id: (int(start), int(end)) for id, start, end 
-                    in zip(df_labels_1["id"], df_labels_1["anomaly_start"], df_labels_1["anomaly_end"])}
+    anomaly_range = {
+        id_: (int(start), int(end))
+        for id_, start, end in zip(df_labels_1["id"], df_labels_1["anomaly_start"], df_labels_1["anomaly_end"])
+    }
 
     ids_abnormal_all = df_labels_1['id'].tolist()
-    with open("/home/user/lyeyang/projects/sct-ood-dataset/labels/missing_Ömer.txt") as f:
-        ids_omer = f.read().splitlines()
-    ids_not_included = list_na_ids + ids_omer
-    ids_used = list(set(ids_all) - set(ids_not_included))
-    ids_abnormal = list(set(ids_used) & set(ids_abnormal))
-    ids_normal = list(set(ids_used) - set(ids_abnormal))
 
-    ids_abnormal_valid = ["1PA133", "1PA136", "1PA169", "1PA178", '1PC015', '1PC037'] #  
-    ids_normal_valid = ['1PA171', '1PA156', '1PA119', '1PA113', '1PA100', '1PA177', '1PC032', '1PC080', '1PC000'] # 
+    # --- Load other labels (only categories 2–6, pelvis only) ---
+    with open("/home/user/jverhoek/sct-ood-dataset/labels/labels_others.json") as f:
+        data_other = json.load(f)
 
-    ids_abnormal_test = list(set(ids_abnormal) - set(ids_abnormal_valid))
+    ids_other = []
+    for item in data_other['types_2_to_7']:
+        pid, info = list(item.items())[0]
+        if pid.startswith("1P") and str(info.get("type")) in {"2", "3", "4", "5", "6"}:
+            ids_other.append(pid)
 
-    # TODO: !!! fix for now
-    # ids_normal_test = list(set(ids_normal)-set(ids_normal_valid))[::3]
-    ids_normal_test = ['1PA062', '1PA081', '1PA084', '1PA086', '1PA088', '1PA090', '1PA093', '1PA098', '1PA101', '1PA105', '1PA109', '1PA112', '1PA116', '1PA141', '1PA145', '1PA148', '1PA150', '1PA181']
-    # TODO: !!! fix for now
-    # ids_normal_train = list(set(ids_normal) - set(ids_normal_valid) - set(ids_normal_test))
-    ids_normal_train = ['1PA063', '1PA064', '1PA070', '1PA073', '1PA074', '1PA076', '1PA080', '1PA083', '1PA091', '1PA094', '1PA095', '1PA097', '1PA106', '1PA107', '1PA108', '1PA110', '1PA111', '1PA115', '1PA117', '1PA121', '1PA126', '1PA127', '1PA134', '1PA137', '1PA138', '1PA140', '1PA142', '1PA144', '1PA146', '1PA154', '1PA157', '1PA159', '1PA161', '1PA164', '1PA174', '1PA187']
-    ids_abnormal_valid
+    # --- Build normal set ---
+    ids_used = list(set(ids_all) - set(list_na_ids))
+    ids_normal_all = list(set(ids_used) - set(ids_abnormal_all) - set(ids_other))
 
-    logger.info(f"Used scans: {len(ids_used)}")
-    logger.info(f"Abnormal scans: {len(ids_abnormal)}")
-    logger.info(f"Normal scans: {len(ids_normal)}")
-    logger.info(f"Valid Abnormal scans: {len(ids_abnormal_valid)}")
-    logger.info(f"Valid Normal scans: {len(ids_normal_valid)}")
-    logger.info(f"Test Abnormal scans: {len(ids_abnormal_test)}")
-    logger.info(f"Test Normal scans: {len(ids_normal_test)}")
+    # --- Filter out 1PC IDs ---
+    ids_normal_all = [i for i in ids_normal_all if not i.startswith("1PC")]
+    ids_abnormal_all = [i for i in ids_abnormal_all if not i.startswith("1PC")]
+
+    # Shuffle
+    random.shuffle(ids_normal_all)
+    random.shuffle(ids_abnormal_all)
+
+    # --- Abnormal splits ---
+    n_val_abn = max(4, int(len(ids_abnormal_all) * val_frac))
+    n_test_abn = max(1, int(len(ids_abnormal_all) * test_frac))
+
+    ids_abnormal_valid = ids_abnormal_all[:n_val_abn]
+    ids_abnormal_test = ids_abnormal_all[n_val_abn:n_val_abn + n_test_abn]
+    extra_abn = ids_abnormal_all[n_val_abn + n_test_abn:]
+    ids_abnormal_test += extra_abn  # all disjoint
+
+    # --- Normal splits ---
+    n_val_norm = max(1, int(len(ids_normal_all) * val_frac))
+    n_test_norm = max(1, int(len(ids_normal_all) * test_frac))
+
+    ids_normal_valid = ids_normal_all[:n_val_norm]
+    ids_normal_test = ids_normal_all[n_val_norm:n_val_norm + n_test_norm]
+    ids_normal_train = ids_normal_all[n_val_norm + n_test_norm:]  # remaining for training
+
+    # --- Logging ---
     logger.info(f"Train Normal scans: {len(ids_normal_train)}")
+    logger.info(f"Valid Normal scans: {len(ids_normal_valid)}")
+    logger.info(f"Valid Abnormal scans: {len(ids_abnormal_valid)}")
+    logger.info(f"Test Normal scans: {len(ids_normal_test)}")
+    logger.info(f"Test Abnormal scans: {len(ids_abnormal_test)}")
+    logger.info(f"Valid Abnormal scans IDs: {ids_abnormal_valid}")
+    logger.info(f"Test Abnormal scans IDs: {ids_abnormal_test}")
 
-
-    create_output_dirs(dir_output=DIR_OUTPUT)
+    det = MetalArtifactDetector()  # instantiate once
 
     # Train: good only
     logger.info("Processing training normal scans...")
