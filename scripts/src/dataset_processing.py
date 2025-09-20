@@ -28,12 +28,15 @@ from utils.path_utils import create_output_dirs
 
 
 DIR_PELVIS = "/local/scratch/jverhoek/datasets/Task1/pelvis/"
-DIR_OUTPUT = os.path.join(os.getcwd(), "output", "nifti")
+DIR_OUTPUT = os.path.join(os.getcwd(), "output", "nifti_v2")
 
 
-DELTA=250
+DELTA=200
 # THRESH_MR_MASK = 15
 THRESH_MR_MASK = 0.1
+
+SEED = 24
+random.seed(SEED)
 
 
 EXCEL_OVERVIEW = "/local/scratch/jverhoek/datasets/Task1/pelvis/overview/1_pelvis_train.xlsx"
@@ -76,6 +79,10 @@ if __name__ == "__main__":
     }
 
     ids_abnormal_all = df_labels_1['id'].tolist()
+
+    # Metal Artifact outside of body leads to messed up anomaly mask (everything outside of the body is taken as anomaly)
+    if '1PA030' in ids_abnormal_all:
+        ids_abnormal_all.remove('1PA030')
 
     # --- Load other labels (only categories 2–6, pelvis only) ---
     with open("/home/user/jverhoek/sct-ood-dataset/labels/labels_others.json") as f:
@@ -139,7 +146,6 @@ if __name__ == "__main__":
         ct_image = load_nifti_image(path_ct)
         mask = load_nifti_image(path_mask)
 
-        det = MetalArtifactDetector()
         body_mask = det.get_body_mask_threshold(mr_image * mask, threshold_ct_body_mask=THRESH_MR_MASK)
         body_mask = np.logical_and(body_mask>0, mask > 0)
 
@@ -218,11 +224,11 @@ if __name__ == "__main__":
         # Extract label masks
         df_hu = det.score_volume_hu(ct_image, scan_id=id_, slice_axis=2)
         df_hu["label"] = np.isin(df_hu["slice_idx"], abnormal_slices).astype(np.uint8)
-        tau, info = det.pick_global_tau_by_hu(df_hu, label_col="label")
-        # logger.info("tau:", tau, "| info:", info)
+        scan_value, info = det.pick_global_tau_by_hu(df_hu, label_col="label")
+        scan_value -= DELTA
+        tau = min(scan_value, 2000)
         logger.info("tau: %s | info: %s", tau, info)
 
-        tau -= DELTA
         mask_vol = (ct_image >= tau).astype(np.uint8)
 
         abnormal_slices = [i for i in abnormal_slices if i >= 15 and i < slices - 15]
@@ -233,13 +239,13 @@ if __name__ == "__main__":
         lo_diff_val = 5
         up_diff_val = 10
         mask_vol_refined = det.refine_mask_with_mr(mask_vol, mr_image, lo_diff=lo_diff_val, up_diff=up_diff_val)
-        mask_vol_refined = det.postprocess_mask_volume(mask_vol_refined, min_hole_size=20, smooth=True, disk_size=0)
+        mask_vol_refined = det.postprocess_mask_volume_morph(mask_vol_refined, disk_size = 5,  min_area_for_smooth=50, slice_axis=2)
         mask_vol = mask_vol_refined
         
         for i in tqdm(abnormal_slices):
             slice_image = masked_mr[:, :, i]
             slice_mask = mask_vol[:, :, i]
-            
+
             slice_image_centered, (pad_h, pad_w) = center_pad_single_slice(slice_image)
             slice_mask = center_pad_single_slice_by_params(slice_mask, pad_h, pad_w)
 
@@ -270,7 +276,6 @@ if __name__ == "__main__":
         ct_image = load_nifti_image(path_ct)
         mask = load_nifti_image(path_mask)
 
-        det = MetalArtifactDetector()
         body_mask = det.get_body_mask_threshold(mr_image * mask, threshold_ct_body_mask=THRESH_MR_MASK)
         body_mask = np.logical_and(body_mask>0, mask > 0)
 
@@ -304,7 +309,6 @@ if __name__ == "__main__":
         ct_image = load_nifti_image(path_ct)
         mask = load_nifti_image(path_mask)
 
-        det = MetalArtifactDetector()
         body_mask = det.get_body_mask_threshold(mr_image * mask, threshold_ct_body_mask=THRESH_MR_MASK)
         body_mask = np.logical_and(body_mask>0, mask > 0)
 
@@ -318,9 +322,12 @@ if __name__ == "__main__":
         
         df_hu = det.score_volume_hu(ct_image, scan_id=id_, slice_axis=2)
         df_hu["label"] = np.isin(df_hu["slice_idx"], abnormal_slices).astype(np.uint8)
-        tau, info = det.pick_global_tau_by_hu(df_hu, label_col="label")
+        scan_value, info = det.pick_global_tau_by_hu(df_hu, label_col="label")
+        scan_value -= DELTA
+        tau = min(scan_value, 2000)
+
         print("tau:", tau, "| info:", info)
-        tau -= DELTA
+
         mask_vol = (ct_image >= tau).astype(np.uint8)
         
         abnormal_slices = [i for i in abnormal_slices if i >= 15 and i < slices - 15]
@@ -328,7 +335,7 @@ if __name__ == "__main__":
         lo_diff_val = 5
         up_diff_val = 10
         mask_vol_refined = det.refine_mask_with_mr(mask_vol, mr_image, lo_diff=lo_diff_val, up_diff=up_diff_val)
-        mask_vol_refined = det.postprocess_mask_volume(mask_vol_refined, min_hole_size=20, smooth=True, disk_size=0)
+        mask_vol_refined = det.postprocess_mask_volume_morph(mask_vol_refined, disk_size = 5,  min_area_for_smooth=50, slice_axis=2)
         mask_vol = mask_vol_refined
         
         for i in tqdm(abnormal_slices):

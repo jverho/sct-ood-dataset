@@ -328,3 +328,44 @@ class MetalArtifactDetector:
             refined_mask[:, :, i] = refined_mask_slice
 
         return refined_mask
+
+    def postprocess_mask_morph(self, mask2d, disk_size=3, min_area_for_smooth=50):
+        """
+        Morphological postprocessing for binary masks with conditional smoothing
+        based on anomaly area.
+
+        Args:
+            mask2d (np.ndarray): 2D binary mask.
+            disk_size (int): Kernel size for morphological operations.
+            smooth (bool): Apply smoothing if True.
+            min_area_for_smooth (int): Minimum anomaly area to apply smoothing.
+
+        Returns:
+            np.ndarray: Postprocessed binary mask (0/1).
+        """
+        mask = mask2d.astype(np.uint8)
+
+        # Compute total anomaly area in this slice
+        total_area = np.count_nonzero(mask)
+
+        # Only apply smoothing if the total area exceeds threshold
+        if total_area >= min_area_for_smooth:
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (disk_size, disk_size))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+        return mask.astype(np.uint8)
+
+    def postprocess_mask_volume_morph(self, mask_vol, slice_axis=2, disk_size=3, min_area_for_smooth=50):
+        """
+        Apply conditional morphological postprocessing slice-by-slice.
+        """
+        vol = np.moveaxis(mask_vol, slice_axis, 0)
+        out_slices = []
+        for z in range(vol.shape[0]):
+            out_slices.append(self.postprocess_mask_morph(
+                vol[z],
+                disk_size=disk_size,
+                min_area_for_smooth=min_area_for_smooth
+            ))
+        out_vol = np.stack(out_slices, axis=0)
+        return np.moveaxis(out_vol, 0, slice_axis)
