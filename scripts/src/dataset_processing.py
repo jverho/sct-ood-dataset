@@ -28,7 +28,7 @@ from utils.path_utils import create_output_dirs
 
 
 DIR_PELVIS = "/local/scratch/jverhoek/datasets/Task1/pelvis/"
-DIR_OUTPUT = os.path.join(os.getcwd(), "output", "nifti_v2")
+DIR_OUTPUT = os.path.join(os.getcwd(), "output", "synth23_pelvis_v6_nifti")
 
 
 DELTA=200
@@ -37,6 +37,7 @@ THRESH_MR_MASK = 0.1
 
 SEED = 24
 random.seed(SEED)
+np.random.seed(SEED)
 
 
 EXCEL_OVERVIEW = "/local/scratch/jverhoek/datasets/Task1/pelvis/overview/1_pelvis_train.xlsx"
@@ -102,6 +103,8 @@ if __name__ == "__main__":
     ids_normal_all = [i for i in ids_normal_all if not i.startswith("1PC")]
     ids_abnormal_all = [i for i in ids_abnormal_all if not i.startswith("1PC")]
 
+    ids_normal_all.sort()  # Ensure a canonical (reproducible) starting order
+
     # Shuffle
     random.shuffle(ids_normal_all)
     random.shuffle(ids_abnormal_all)
@@ -152,16 +155,15 @@ if __name__ == "__main__":
         masked_mr = apply_mask(mr_image, body_mask)
         mr_normalized = minmax_normalize_numpy(masked_mr)
         
-        slices = mr_image.shape[2]
+        slices = mr_normalized.shape[2]
 
         for i in tqdm(range(25, slices - 20, 1)):
-            slice_image = masked_mr[:, :, i]
+            slice_image = mr_normalized[:, :, i]
             slice_image_centered, (pad_h, pad_w) = center_pad_single_slice(slice_image)
             slice_image_resized = resize_image(slice_image_centered, target_size=[240, 240])
 
             save_np_to_nifti(slice_image_resized, os.path.join(DIR_OUTPUT, "train", "good", f"{id_}_{i}.nii"))
-            
-            # plt.imsave(os.path.join(DIR_OUTPUT, "train", "good", f"{id_}_{i}.png"), slice_image_resized, cmap="bone")
+
     logger.info("Finished processing training normal scans.")
 
 
@@ -184,10 +186,10 @@ if __name__ == "__main__":
         masked_mr = apply_mask(mr_image, body_mask)
         mr_normalized = minmax_normalize_numpy(masked_mr)
         
-        slices = mr_image.shape[2]
+        slices = mr_normalized.shape[2]
         
         for i in tqdm(range(25, slices - 20, 1)):
-            slice_image = masked_mr[:, :, i]
+            slice_image = mr_normalized[:, :, i]
             slice_image_centered, (pad_h, pad_w) = center_pad_single_slice(slice_image)
             slice_image_resized = resize_image(slice_image_centered, target_size=[240, 240])
             slice_mask = np.zeros_like(slice_image_resized)
@@ -195,8 +197,6 @@ if __name__ == "__main__":
             save_np_to_nifti(slice_image_resized, os.path.join(DIR_OUTPUT, "valid", "good", "img", f"{id_}_{i}.nii"))
             save_np_to_nifti(slice_mask, os.path.join(DIR_OUTPUT, "valid", "good", "label", f"{id_}_{i}.nii"))
 
-            # plt.imsave(os.path.join(DIR_OUTPUT, "valid", "good", "img", f"{id_}_{i}.png"), slice_image_resized, cmap="bone")
-            # plt.imsave(os.path.join(DIR_OUTPUT, "valid", "good", "label", f"{id_}_{i}.png"), slice_mask, cmap="bone")
     logger.info("Finished processing validation normal scans.")
 
     # Valid: Ungood
@@ -218,7 +218,7 @@ if __name__ == "__main__":
         masked_mr = apply_mask(mr_image, body_mask)
         mr_normalized = minmax_normalize_numpy(masked_mr)
 
-        slices = mr_image.shape[2]
+        slices = mr_normalized.shape[2]
         abnormal_slices = list(range(anomaly_range[id_][0], anomaly_range[id_][-1]))
         
         # Extract label masks
@@ -243,7 +243,7 @@ if __name__ == "__main__":
         mask_vol = mask_vol_refined
         
         for i in tqdm(abnormal_slices):
-            slice_image = masked_mr[:, :, i]
+            slice_image = mr_normalized[:, :, i]
             slice_mask = mask_vol[:, :, i]
 
             slice_image_centered, (pad_h, pad_w) = center_pad_single_slice(slice_image)
@@ -258,8 +258,6 @@ if __name__ == "__main__":
             
             save_np_to_nifti(slice_image_resized, os.path.join(DIR_OUTPUT, "valid", "Ungood", "img", f"{id_}_{i}.nii"))
             save_np_to_nifti(slice_mask, os.path.join(DIR_OUTPUT, "valid", "Ungood", "label", f"{id_}_{i}.nii"))
-            # plt.imsave(os.path.join(DIR_OUTPUT, "valid", "Ungood", "img", f"{id_}_{i}.png"), slice_image_resized, cmap="bone")
-            # plt.imsave(os.path.join(DIR_OUTPUT, "valid", "Ungood", "label", f"{id_}_{i}.png"), slice_mask, cmap="bone")
 
     logger.info("Finished processing validation normal scans for Ungood slices.")
 
@@ -282,17 +280,16 @@ if __name__ == "__main__":
         masked_mr = apply_mask(mr_image, body_mask)
         mr_normalized = minmax_normalize_numpy(masked_mr)
 
-        slices = mr_image.shape[2]
+        slices = mr_normalized.shape[2]
 
         for i in tqdm(range(25, slices - 20, 1)):
-            slice_image = masked_mr[:, :, i]
+            slice_image = mr_normalized[:, :, i]
             slice_image_centered, (pad_h, pad_w) = center_pad_single_slice(slice_image)
             slice_image_resized = resize_image(slice_image_centered, target_size=[240, 240])
             slice_mask = np.zeros_like(slice_image_resized)
             save_np_to_nifti(slice_image_resized, os.path.join(DIR_OUTPUT, "test", "good", "img", f"{id_}_{i}.nii"))
             save_np_to_nifti(slice_mask, os.path.join(DIR_OUTPUT, "test", "good", "label", f"{id_}_{i}.nii"))
-            # plt.imsave(os.path.join(DIR_OUTPUT, "test", "good", "img", f"{id_}_{i}.png"), slice_image_resized, cmap="bone")
-            # plt.imsave(os.path.join(DIR_OUTPUT, "test", "good", "label", f"{id_}_{i}.png"), slice_mask, cmap="bone")
+
     logger.info("Finished processing test normal scans.")
 
 
@@ -315,7 +312,7 @@ if __name__ == "__main__":
         masked_mr = apply_mask(mr_image, body_mask)
         mr_normalized = minmax_normalize_numpy(masked_mr)
         
-        slices = mr_image.shape[2]
+        slices = mr_normalized.shape[2]
         abnormal_slices = list(range(anomaly_range[id_][0], anomaly_range[id_][-1]))
         
         # Extract label masks
@@ -339,7 +336,7 @@ if __name__ == "__main__":
         mask_vol = mask_vol_refined
         
         for i in tqdm(abnormal_slices):
-            slice_image = masked_mr[:, :, i]
+            slice_image = mr_normalized[:, :, i]
             slice_mask = mask_vol[:, :, i]
             
             slice_image_centered, (pad_h, pad_w) = center_pad_single_slice(slice_image)
@@ -353,6 +350,5 @@ if __name__ == "__main__":
 
             save_np_to_nifti(slice_image_resized, os.path.join(DIR_OUTPUT, "test", "Ungood", "img", f"{id_}_{i}.nii"))
             save_np_to_nifti(slice_mask, os.path.join(DIR_OUTPUT, "test", "Ungood", "label", f"{id_}_{i}.nii"))    
-            # plt.imsave(os.path.join(DIR_OUTPUT, "test", "Ungood", "img", f"{id_}_{i}.png"), slice_image_resized, cmap="bone")
-            # plt.imsave(os.path.join(DIR_OUTPUT, "test", "Ungood", "label", f"{id_}_{i}.png"), slice_mask, cmap="bone")
+
     logger.info("Finished processing test abnormal scans for Ungood slices.")
