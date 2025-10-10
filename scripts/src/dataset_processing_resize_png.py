@@ -61,7 +61,7 @@ def save_png(image, path, cmap="bone"):
 
 
 def load_scan(det, id_):
-    """Load MR, CT, and mask volumes and return normalized masked MR + body mask."""
+    """Load MR, CT, and mask volumes and return both raw and normalized MR + body mask."""
     dir_scan = os.path.join(DIR_PELVIS, id_)
     mr = load_nifti_image(os.path.join(dir_scan, "mr.nii.gz"))
     ct = load_nifti_image(os.path.join(dir_scan, "ct.nii.gz"))
@@ -72,7 +72,8 @@ def load_scan(det, id_):
 
     masked_mr = apply_mask(mr, body_mask_vol)
     mr_norm = minmax_normalize_numpy(masked_mr)
-    return mr_norm, ct, body_mask_vol
+
+    return mr, mr_norm, ct, body_mask_vol
 
 
 # ================================================================
@@ -139,13 +140,13 @@ def process_slices(
 # ================================================================
 def process_good_scans(det, ids, split, output_dir):
     for id_ in ids:
-        mr_norm, _, body_mask_vol = load_scan(det, id_)
+        mr, mr_norm, _, body_mask_vol = load_scan(det, id_)
         process_slices(mr_norm, body_mask_vol, id_, split, "good", output_dir)
 
 
 def process_ungood_scans(det, ids, split, output_dir, anomaly_range):
     for id_ in ids:
-        mr_norm, ct, body_mask_vol = load_scan(det, id_)
+        mr, mr_norm, ct, body_mask_vol = load_scan(det, id_)
         slices = mr_norm.shape[2]
         abnormal_slices = list(range(anomaly_range[id_][0], anomaly_range[id_][-1]))
 
@@ -153,12 +154,13 @@ def process_ungood_scans(det, ids, split, output_dir, anomaly_range):
         df_hu = det.score_volume_hu(ct, scan_id=id_, slice_axis=2)
         df_hu["label"] = np.isin(df_hu["slice_idx"], abnormal_slices).astype(np.uint8)
         scan_value, _ = det.pick_global_tau_by_hu(df_hu, label_col="label")
-        tau = min(scan_value - DELTA, 2000)
+        scan_value -= DELTA                   # <- restore original logic
+        tau = min(scan_value, 2000)
+
         mask_vol = (ct >= tau).astype(np.uint8)
         abnormal_slices = [i for i in abnormal_slices if 15 <= i < slices - 15]
 
-        # Refine mask
-        mask_ref = det.refine_mask_with_mr(mask_vol, mr_norm, lo_diff=5, up_diff=10)
+        mask_ref = det.refine_mask_with_mr(mask_vol, mr, lo_diff=5, up_diff=10)
         mask_ref = det.postprocess_mask_volume_morph(mask_ref, disk_size=5, min_area_for_smooth=50, slice_axis=2)
 
         process_slices(mr_norm, body_mask_vol, id_, split, "Ungood", output_dir, mask_vol=mask_ref, abnormal_slices=abnormal_slices)
