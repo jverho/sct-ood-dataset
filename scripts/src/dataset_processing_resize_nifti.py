@@ -215,6 +215,8 @@ if __name__ == "__main__":
     ids_abnormal_all = [i for i in df_labels_1['id'].tolist() if not i.startswith("1PC")]
     if '1PA030' in ids_abnormal_all:
         ids_abnormal_all.remove('1PA030')
+    if '1PA170' in ids_abnormal_all:
+        ids_abnormal_all.remove('1PA170')
 
     with open("/home/user/jverhoek/sct-ood-dataset/labels/labels_others.json") as f:
         data_other = json.load(f)
