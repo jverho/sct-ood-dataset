@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import logging
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 
 sys.path.append("../scripts/src/")
 
@@ -18,6 +17,7 @@ from utils.processing_utils import (
     center_pad_single_slice_by_params,
     resize_image,
     minmax_normalize_numpy,
+    save_np_to_nifti,
 )
 from utils.path_utils import create_output_dirs
 
@@ -26,7 +26,7 @@ from utils.path_utils import create_output_dirs
 # CONFIGURATION
 # ================================================================
 DIR_PELVIS = "/local/scratch/jverhoek/datasets/Task1/pelvis/"
-DIR_OUTPUT = os.path.join(os.getcwd(), "output", "synth23_pelvis_v7_224_png")
+DIR_OUTPUT = os.path.join(os.getcwd(), "output", "synth23_pelvis_v7_224_nifti_1ch")
 
 DELTA = 200
 THRESH_MR_MASK = 0.1
@@ -46,18 +46,11 @@ EXCEL_OVERVIEW = "/local/scratch/jverhoek/datasets/Task1/pelvis/overview/1_pelvi
 # HELPER FUNCTIONS
 # ================================================================
 def center_crop(slice_, target_size=TARGET_SIZE_CROP):
-    """Crop the center region of a slice."""
     h, w = slice_.shape
     th, tw = target_size
     i = int(round((h - th) / 2.0))
     j = int(round((w - tw) / 2.0))
     return slice_[i:i + th, j:j + tw]
-
-
-def save_png(image, path, cmap="bone"):
-    """Save a single grayscale image as PNG."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    plt.imsave(path, image, cmap=cmap)
 
 
 def load_scan(det, id_):
@@ -76,23 +69,27 @@ def load_scan(det, id_):
     return mr, mr_norm, ct, body_mask_vol
 
 
+def extract_3ch_slice(volume, i):
+    """Extract a 3-channel slice (current, current, current)."""
+    idxs = [i, i, i]
+    return volume[:, :, idxs].copy()
+
+
 # ================================================================
 # SAVE FUNCTIONS
 # ================================================================
-def save_train_slice(slice_img, slice_body_mask, output_dir, split, subset, id_, i):
-    """Save structure for TRAIN (no label folder)."""
-    path_img = os.path.join(output_dir, split, subset, f"{id_}_{i}.png")
-    path_bodymask = os.path.join(output_dir, split, "bodymask", f"{id_}_{i}.png")
-    save_png(slice_img, path_img)
-    save_png(slice_body_mask, path_bodymask, cmap="gray")
+def save_train_slice(slice_imgs_cropped, slice_body_mask_cropped, output_dir, split, subset, id_, i):
+    """Save slice structure for TRAIN (no label folder)."""
+    save_np_to_nifti(slice_imgs_cropped, os.path.join(output_dir, split, subset, f"{id_}_{i}.nii"))
+    save_np_to_nifti(slice_body_mask_cropped, os.path.join(output_dir, split, "bodymask", f"{id_}_{i}.nii"))
 
 
-def save_eval_slice(slice_img, slice_mask, slice_body_mask, output_dir, split, subset, id_, i):
-    """Save structure for VALID and TEST (img/label/bodymask)."""
+def save_eval_slice(slice_imgs_cropped, slice_mask_cropped, slice_body_mask_cropped, output_dir, split, subset, id_, i):
+    """Save slice structure for VALID and TEST (with img/label/bodymask)."""
     base_path = os.path.join(output_dir, split, subset)
-    save_png(slice_img, os.path.join(base_path, "img", f"{id_}_{i}.png"))
-    save_png(slice_mask, os.path.join(base_path, "label", f"{id_}_{i}.png"), cmap="gray")
-    save_png(slice_body_mask, os.path.join(base_path, "bodymask", f"{id_}_{i}.png"), cmap="gray")
+    save_np_to_nifti(slice_imgs_cropped, os.path.join(base_path, "img", f"{id_}_{i}.nii"))
+    save_np_to_nifti(slice_mask_cropped, os.path.join(base_path, "label", f"{id_}_{i}.nii"))
+    save_np_to_nifti(slice_body_mask_cropped, os.path.join(base_path, "bodymask", f"{id_}_{i}.nii"))
 
 
 # ================================================================
@@ -103,7 +100,7 @@ def process_slices(
     output_dir, start_idx=SLICE_INDEX_START_NORMAL, end_offset=SLICE_INDEX_END_NORMAL,
     mask_vol=None, abnormal_slices=None
 ):
-    """Process and save all slices (good or Ungood) for a scan."""
+    """Process all slices (good or Ungood) for a scan."""
     slices = mr_norm.shape[2]
     slice_indices = (
         range(start_idx, slices + end_offset)
@@ -111,28 +108,44 @@ def process_slices(
     )
 
     for i in tqdm(slice_indices, desc=f"{id_}-{split}-{subset}"):
-        slice_img = mr_norm[:, :, i]
+        slice_imgs = extract_3ch_slice(mr_norm, i)
+        slice_img = slice_imgs[:, :, 1]
         slice_body_mask = body_mask_vol[:, :, i]
         slice_mask = mask_vol[:, :, i] if mask_vol is not None else np.zeros_like(slice_body_mask)
 
-        # Center pad
+        # Center-pad using same params for all 3 channels + masks
         slice_img_centered, (pad_h, pad_w) = center_pad_single_slice(slice_img)
         slice_body_mask_centered = center_pad_single_slice_by_params(slice_body_mask, pad_h, pad_w)
         slice_mask_centered = center_pad_single_slice_by_params(slice_mask, pad_h, pad_w)
 
-        # Resize and crop
-        slice_img_cropped = center_crop(resize_image(slice_img_centered, target_size=TARGET_SIZE))
-        slice_body_mask_cropped = center_crop(resize_image(slice_body_mask_centered, target_size=TARGET_SIZE))
-        slice_mask_cropped = center_crop(resize_image(slice_mask_centered, target_size=TARGET_SIZE))
+        # Resize + crop all channels
+        slice_imgs_cropped = np.stack([
+            center_crop(
+                resize_image(
+                    center_pad_single_slice_by_params(slice_imgs[:, :, c], pad_h, pad_w),
+                    target_size=TARGET_SIZE,
+                )
+            )
+            for c in range(slice_imgs.shape[2])
+        ], axis=-1)
+        slice_imgs_cropped = np.expand_dims(slice_imgs_cropped, axis=2)  # (H, W, 1, 3)
 
-        # Skip tiny abnormal masks
+        slice_body_mask_cropped = center_crop(
+            resize_image(slice_body_mask_centered, target_size=TARGET_SIZE)
+        )
+        slice_mask_cropped = center_crop(
+            resize_image(slice_mask_centered, target_size=TARGET_SIZE)
+        )
+
+        # Skip small masks for Ungood
         if mask_vol is not None and slice_mask_cropped.sum() < 3:
             continue
 
+        # Save depending on split
         if split == "train":
-            save_train_slice(slice_img_cropped, slice_body_mask_cropped, output_dir, split, subset, id_, i)
+            save_train_slice(slice_imgs_cropped, slice_body_mask_cropped, output_dir, split, subset, id_, i)
         else:
-            save_eval_slice(slice_img_cropped, slice_mask_cropped, slice_body_mask_cropped, output_dir, split, subset, id_, i)
+            save_eval_slice(slice_imgs_cropped, slice_mask_cropped, slice_body_mask_cropped, output_dir, split, subset, id_, i)
 
 
 # ================================================================
@@ -154,7 +167,7 @@ def process_ungood_scans(det, ids, split, output_dir, anomaly_range):
         df_hu = det.score_volume_hu(ct, scan_id=id_, slice_axis=2)
         df_hu["label"] = np.isin(df_hu["slice_idx"], abnormal_slices).astype(np.uint8)
         scan_value, _ = det.pick_global_tau_by_hu(df_hu, label_col="label")
-        scan_value -= DELTA                   # <- restore original logic
+        scan_value -= DELTA
         tau = min(scan_value, 2000)
 
         mask_vol = (ct >= tau).astype(np.uint8)
@@ -247,4 +260,4 @@ if __name__ == "__main__":
     logger.info("=== TEST UNGOOD ===")
     process_ungood_scans(det, ids_abnormal_test, "test", DIR_OUTPUT, anomaly_range)
 
-    logger.info("✅ Finished all splits — PNG dataset created.")
+    logger.info("✅ Finished all splits - NIFTI dataset created.")

@@ -38,12 +38,21 @@ random.seed(SEED)
 np.random.seed(SEED)
 
 TARGET_SIZE = (240, 240)
+TARGET_SIZE_CROP = (224, 224)
 EXCEL_OVERVIEW = "/local/scratch/jverhoek/datasets/Task1/pelvis/overview/1_pelvis_train.xlsx"
 
 
 # ================================================================
 # HELPER FUNCTIONS
 # ================================================================
+def center_crop(slice_, target_size=TARGET_SIZE_CROP):
+    h, w = slice_.shape
+    th, tw = target_size
+    i = int(round((h - th) / 2.0))
+    j = int(round((w - tw) / 2.0))
+    return slice_[i:i + th, j:j + tw]
+
+
 def load_scan(det, id_):
     """Load MR, CT, and mask volumes and return both raw and normalized MR + body mask."""
     dir_scan = os.path.join(DIR_PELVIS, id_)
@@ -115,34 +124,34 @@ def process_slices(
         slice_body_mask_centered = center_pad_single_slice_by_params(slice_body_mask, pad_h, pad_w)
         slice_mask_centered = center_pad_single_slice_by_params(slice_mask, pad_h, pad_w)
 
-        slice_imgs_resized = np.stack([
-            resize_image(
-                center_pad_single_slice_by_params(slice_imgs[:, :, c], pad_h, pad_w),
-                target_size=TARGET_SIZE,
+        # Resize + crop all channels
+        slice_imgs_cropped = np.stack([
+            center_crop(
+                resize_image(
+                    center_pad_single_slice_by_params(slice_imgs[:, :, c], pad_h, pad_w),
+                    target_size=TARGET_SIZE,
+                )
             )
             for c in range(slice_imgs.shape[2])
         ], axis=-1)
-        slice_imgs_resized = np.expand_dims(slice_imgs_resized, axis=2)  # (H, W, 1, 3)
+        slice_imgs_cropped = np.expand_dims(slice_imgs_cropped, axis=2)  # (H, W, 1, 3)
 
-        slice_body_mask_resized = resize_image(
-            slice_body_mask_centered, target_size=TARGET_SIZE
+        slice_body_mask_cropped = center_crop(
+            resize_image(slice_body_mask_centered, target_size=TARGET_SIZE)
         )
-        slice_mask_resized = resize_image(
-            slice_mask_centered, target_size=TARGET_SIZE
+        slice_mask_cropped = center_crop(
+            resize_image(slice_mask_centered, target_size=TARGET_SIZE)
         )
 
         # Skip small masks for Ungood
-        # The mask used for the check must also be the 240x240 size.
-        if mask_vol is not None and slice_mask_resized.sum() < 3:
+        if mask_vol is not None and slice_mask_cropped.sum() < 3:
             continue
 
         # Save depending on split
-        # Variable names in save calls are updated
         if split == "train":
-            save_train_slice(slice_imgs_resized, slice_body_mask_resized, output_dir, split, subset, id_, i)
+            save_train_slice(slice_imgs_cropped, slice_body_mask_cropped, output_dir, split, subset, id_, i)
         else:
-            save_eval_slice(slice_imgs_resized, slice_mask_resized, slice_body_mask_resized, output_dir, split, subset,
-                            id_, i)
+            save_eval_slice(slice_imgs_cropped, slice_mask_cropped, slice_body_mask_cropped, output_dir, split, subset, id_, i)
 
 
 # ================================================================

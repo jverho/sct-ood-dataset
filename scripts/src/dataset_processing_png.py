@@ -38,12 +38,21 @@ random.seed(SEED)
 np.random.seed(SEED)
 
 TARGET_SIZE = (240, 240)
+TARGET_SIZE_CROP = (224, 224)
 EXCEL_OVERVIEW = "/local/scratch/jverhoek/datasets/Task1/pelvis/overview/1_pelvis_train.xlsx"
 
 
 # ================================================================
 # HELPER FUNCTIONS
 # ================================================================
+def center_crop(slice_, target_size=TARGET_SIZE_CROP):
+    """Crop the center region of a slice."""
+    h, w = slice_.shape
+    th, tw = target_size
+    i = int(round((h - th) / 2.0))
+    j = int(round((w - tw) / 2.0))
+    return slice_[i:i + th, j:j + tw]
+
 
 def save_png(image, path, cmap="bone"):
     """Save a single grayscale image as PNG."""
@@ -65,7 +74,6 @@ def load_scan(det, id_):
     mr_norm = minmax_normalize_numpy(masked_mr)
 
     return mr, mr_norm, ct, body_mask_vol
-
 
 
 # ================================================================
@@ -113,9 +121,9 @@ def process_slices(
         slice_mask_centered = center_pad_single_slice_by_params(slice_mask, pad_h, pad_w)
 
         # Resize and crop
-        slice_img_cropped = resize_image(slice_img_centered, target_size=TARGET_SIZE)
-        slice_body_mask_cropped = resize_image(slice_body_mask_centered, target_size=TARGET_SIZE)
-        slice_mask_cropped = resize_image(slice_mask_centered, target_size=TARGET_SIZE)
+        slice_img_cropped = center_crop(resize_image(slice_img_centered, target_size=TARGET_SIZE))
+        slice_body_mask_cropped = center_crop(resize_image(slice_body_mask_centered, target_size=TARGET_SIZE))
+        slice_mask_cropped = center_crop(resize_image(slice_mask_centered, target_size=TARGET_SIZE))
 
         # Skip tiny abnormal masks
         if mask_vol is not None and slice_mask_cropped.sum() < 3:
