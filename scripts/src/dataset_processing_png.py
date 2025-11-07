@@ -26,14 +26,14 @@ from utils.path_utils import create_output_dirs
 # CONFIGURATION
 # ================================================================
 DIR_PELVIS = "/local/scratch/jverhoek/datasets/Task1/pelvis/"
-DIR_OUTPUT = os.path.join(os.getcwd(), "output", "synth23_pelvis_v7_224_png")
+DIR_OUTPUT = os.path.join("/local/scratch/jverhoek/datasets/", "synth23_pelvis_v8_png_v2")
 
 DELTA = 200
 THRESH_MR_MASK = 0.1
 SLICE_INDEX_START_NORMAL = 25
 SLICE_INDEX_END_NORMAL = -20
 
-SEED = 24
+SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
 
@@ -160,7 +160,7 @@ def process_ungood_scans(det, ids, split, output_dir, anomaly_range):
         mask_vol = (ct >= tau).astype(np.uint8)
         abnormal_slices = [i for i in abnormal_slices if 15 <= i < slices - 15]
 
-        mask_ref = det.refine_mask_with_mr(mask_vol, mr, lo_diff=5, up_diff=10)
+        mask_ref = det.refine_mask_with_mr(mask_vol, mr, lo_diff=5, up_diff=8)
         mask_ref = det.postprocess_mask_volume_morph(mask_ref, disk_size=5, min_area_for_smooth=50, slice_axis=2)
 
         process_slices(mr_norm, body_mask_vol, id_, split, "Ungood", output_dir, mask_vol=mask_ref, abnormal_slices=abnormal_slices)
@@ -176,7 +176,7 @@ if __name__ == "__main__":
 
     # ---------------- Load IDs and splits ----------------
     df_overview = pd.read_excel(EXCEL_OVERVIEW, sheet_name="MR")
-    ids_all = [i for i in df_overview["ID"].tolist() if i.startswith("1PA")]
+    ids_all = [i for i in df_overview["ID"].tolist() if i.startswith("1P")]
 
     with open("/home/user/jverhoek/sct-ood-dataset/labels/labels_implant.json") as f:
         data_implant = json.load(f)
@@ -193,11 +193,15 @@ if __name__ == "__main__":
         for id_, start, end in zip(df_labels_1["id"], df_labels_1["anomaly_start"], df_labels_1["anomaly_end"])
     }
 
-    ids_abnormal_all = [i for i in df_labels_1['id'].tolist() if not i.startswith("1PC")]
+    ids_abnormal_all = df_labels_1['id'].tolist()
     if '1PA030' in ids_abnormal_all:
         ids_abnormal_all.remove('1PA030')
     if '1PA170' in ids_abnormal_all:
         ids_abnormal_all.remove('1PA170')
+    if '1PC029' in ids_abnormal_all:
+        ids_abnormal_all.remove('1PC029')
+    if '1PC015' in ids_abnormal_all:
+        ids_abnormal_all.remove('1PC015')
 
     with open("/home/user/jverhoek/sct-ood-dataset/labels/labels_others.json") as f:
         data_other = json.load(f)
