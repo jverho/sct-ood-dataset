@@ -7,6 +7,7 @@ import pandas as pd
 import logging
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from PIL import Image
 
 sys.path.append("../scripts/src/")
 
@@ -26,7 +27,7 @@ from utils.path_utils import create_output_dirs
 # CONFIGURATION
 # ================================================================
 DIR_PELVIS = "/local/scratch/jverhoek/datasets/Task1/pelvis/"
-DIR_OUTPUT = os.path.join("/local/scratch/jverhoek/datasets/", "synth23_pelvis_v8_png_v2")
+DIR_OUTPUT = os.path.join("/local/scratch/jverhoek/datasets/", "synth23_pelvis_v8_png")
 
 DELTA = 200
 THRESH_MR_MASK = 0.1
@@ -55,9 +56,25 @@ def center_crop(slice_, target_size=TARGET_SIZE_CROP):
 
 
 def save_png(image, path, cmap="bone"):
-    """Save a single grayscale image as PNG."""
+    """
+    Saves a single image or mask as a PNG.
+    - If cmap is 'binary', forces the output to be a single-channel 0/255 mask.
+    - Otherwise, uses matplotlib to apply the specified colormap.
+    """
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    plt.imsave(path, image, cmap=cmap)
+    if cmap == "binary":
+        # 1. Binarize and convert to 8-bit integer (0 or 255)
+        # Assuming the input 'image' array is already 0/1 or similar.
+        # This is CRUCIAL for ensuring the background is saved as 0.
+        img_data = (image > 0).astype(np.uint8) * 255
+
+        # 2. Save using Pillow in L (8-bit grayscale) mode.
+        Image.fromarray(img_data, mode="L").save(path)
+
+    else:
+        # Use Matplotlib for images that require a colormap (like 'bone' for MR).
+        # This is safe for the MR images as they are not used for pixel-wise metrics.
+        plt.imsave(path, image, cmap=cmap)
 
 
 def load_scan(det, id_):
@@ -84,15 +101,15 @@ def save_train_slice(slice_img, slice_body_mask, output_dir, split, subset, id_,
     path_img = os.path.join(output_dir, split, subset, f"{id_}_{i}.png")
     path_bodymask = os.path.join(output_dir, split, "bodymask", f"{id_}_{i}.png")
     save_png(slice_img, path_img)
-    save_png(slice_body_mask, path_bodymask, cmap="gray")
+    save_png(slice_body_mask, path_bodymask, cmap="binary")
 
 
 def save_eval_slice(slice_img, slice_mask, slice_body_mask, output_dir, split, subset, id_, i):
     """Save structure for VALID and TEST (img/label/bodymask)."""
     base_path = os.path.join(output_dir, split, subset)
     save_png(slice_img, os.path.join(base_path, "img", f"{id_}_{i}.png"))
-    save_png(slice_mask, os.path.join(base_path, "label", f"{id_}_{i}.png"), cmap="gray")
-    save_png(slice_body_mask, os.path.join(base_path, "bodymask", f"{id_}_{i}.png"), cmap="gray")
+    save_png(slice_mask, os.path.join(base_path, "label", f"{id_}_{i}.png"), cmap="binary")
+    save_png(slice_body_mask, os.path.join(base_path, "bodymask", f"{id_}_{i}.png"), cmap="binary")
 
 
 # ================================================================
@@ -160,7 +177,7 @@ def process_ungood_scans(det, ids, split, output_dir, anomaly_range):
         mask_vol = (ct >= tau).astype(np.uint8)
         abnormal_slices = [i for i in abnormal_slices if 15 <= i < slices - 15]
 
-        mask_ref = det.refine_mask_with_mr(mask_vol, mr, lo_diff=5, up_diff=8)
+        mask_ref = det.refine_mask_with_mr(mask_vol, mr, lo_diff=5, up_diff=10)
         mask_ref = det.postprocess_mask_volume_morph(mask_ref, disk_size=5, min_area_for_smooth=50, slice_axis=2)
 
         process_slices(mr_norm, body_mask_vol, id_, split, "Ungood", output_dir, mask_vol=mask_ref, abnormal_slices=abnormal_slices)
