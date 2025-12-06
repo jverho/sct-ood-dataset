@@ -178,6 +178,99 @@ def process_ungood_scans(det, ids, split, output_dir, anomaly_range):
 
         process_slices(mr_norm, body_mask_vol, id_, split, "Ungood", output_dir, mask_vol=mask_ref, abnormal_slices=abnormal_slices)
 
+# ================================================================
+# EXPORT FULL ANOMALOUS TEST CASES - PATIENT-WISE (NIfTI)
+# ================================================================
+def export_full_anomalous_cases_nifti(det, ids, output_dir, anomaly_range):
+    """
+    For each test anomalous scan, save all slices (except first 10 & last 5)
+    in patient-wise folders: img (MR 3ch), label (mask), bodymask, as NIfTI files.
+    """
+    for id_ in ids:
+        mr, mr_norm, ct, body_mask_vol = load_scan(det, id_)
+        slices = mr_norm.shape[2]
+        start_idx = 10
+        end_idx = slices - 5
+        if end_idx <= start_idx:
+            continue  # Skip if scan too small
+
+        abn_start, abn_end = anomaly_range.get(id_, (start_idx, end_idx))
+        abnormal_slices = list(range(abn_start, abn_end))
+        df_hu = det.score_volume_hu(ct, scan_id=id_, slice_axis=2)
+        df_hu["label"] = np.isin(df_hu["slice_idx"], abnormal_slices).astype(np.uint8)
+        scan_value, _ = det.pick_global_tau_by_hu(df_hu, label_col="label")
+        scan_value -= DELTA
+        tau = min(scan_value, 2000)
+        mask_vol = (ct >= tau).astype(np.uint8)
+        mask_ref = det.refine_mask_with_mr(mask_vol, mr, lo_diff=5, up_diff=10)
+        mask_ref = det.postprocess_mask_volume_morph(mask_ref, disk_size=5, min_area_for_smooth=50, slice_axis=2)
+
+        # Create patient-wise folders
+        base_path = os.path.join(output_dir, "test", "Ungood_whole_patient_scans")
+        for subdir in ("img", "label", "bodymask"):
+            os.makedirs(os.path.join(base_path, subdir), exist_ok=True)
+
+        for i in tqdm(range(start_idx, end_idx), desc=f"patientwise_anom_test_nifti_{id_}"):
+            # 3ch MR
+            slice_imgs = extract_3ch_slice(mr_norm, i)
+            slice_img = slice_imgs[:, :, 1]
+            slice_body_mask = body_mask_vol[:, :, i]
+            slice_mask = mask_ref[:, :, i]
+
+            # Center-pad and crop as before
+            slice_img_centered, (pad_h, pad_w) = center_pad_single_slice(slice_img)
+            slice_body_mask_centered = center_pad_single_slice_by_params(slice_body_mask, pad_h, pad_w)
+            slice_mask_centered = center_pad_single_slice_by_params(slice_mask, pad_h, pad_w)
+
+            slice_imgs_cropped = np.stack([
+                center_crop(
+                    resize_image(
+                        center_pad_single_slice_by_params(slice_imgs[:, :, c], pad_h, pad_w),
+                        target_size=TARGET_SIZE,
+                    )
+                )
+                for c in range(slice_imgs.shape[2])
+            ], axis=-1)
+            slice_imgs_cropped = np.expand_dims(slice_imgs_cropped, axis=2)  # (H, W, 1, 3)
+
+            slice_body_mask_cropped = center_crop(resize_image(slice_body_mask_centered, target_size=TARGET_SIZE))
+            slice_mask_cropped = center_crop(resize_image(slice_mask_centered, target_size=TARGET_SIZE))
+
+            # Save files as NIfTI
+            save_np_to_nifti(slice_imgs_cropped, os.path.join(base_path, "img", f"{id_}_{i}.nii"))
+            save_np_to_nifti(slice_mask_cropped, os.path.join(base_path, "label", f"{id_}_{i}.nii"))
+            save_np_to_nifti(slice_body_mask_cropped, os.path.join(base_path, "bodymask", f"{id_}_{i}.nii"))
+
+def get_ids_from_ungood_test_folder(output_dir):
+    """
+    Look into DIR_OUTPUT/test/Ungood/img and infer unique patient IDs
+    from filenames like '<ID>_<slice>.nii', '.nii.gz', or '.png'.
+    """
+    img_dir = os.path.join(output_dir, "test", "Ungood", "img")
+    if not os.path.isdir(img_dir):
+        return set()
+
+    ids = set()
+    for fname in os.listdir(img_dir):
+        # accept NIfTI and PNG images
+        if not fname.endswith((".nii", ".nii.gz", ".png")):
+            continue
+
+        stem = fname
+        if stem.endswith(".nii.gz"):
+            stem = stem[:-7]
+        elif stem.endswith(".nii"):
+            stem = stem[:-4]
+        elif stem.endswith(".png"):
+            stem = stem[:-4]
+
+        parts = stem.split("_")
+        if len(parts) < 2:
+            continue
+        pid = "_".join(parts[:-1])
+        ids.add(pid)
+
+    return ids
 
 # ================================================================
 # MAIN
@@ -264,4 +357,13 @@ if __name__ == "__main__":
     logger.info("=== TEST UNGOOD ===")
     process_ungood_scans(det, ids_abnormal_test, "test", DIR_OUTPUT, anomaly_range)
 
-    logger.info("✅ Finished all splits - NIFTI dataset created.")
+    logger.info("Finished all splits - NIFTI dataset created.")
+
+    # Only patients that actually have slices saved in test/Ungood
+    ids_with_ungood_slices = get_ids_from_ungood_test_folder(DIR_OUTPUT)
+    ids_abnormal_test_effective = sorted(ids_with_ungood_slices.intersection(ids_abnormal_test))
+
+    logger.info(f"Test Ungood patients on disk: {len(ids_abnormal_test_effective)}")
+
+    export_full_anomalous_cases_nifti(det, ids_abnormal_test_effective, DIR_OUTPUT, anomaly_range)
+    logger.info("✅ Finished - PATIENT-WISE ANOMALOUS TEST CASES (NIFTI)")
