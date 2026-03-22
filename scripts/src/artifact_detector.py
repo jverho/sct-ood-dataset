@@ -166,7 +166,6 @@ class MetalArtifactDetector:
         ct = np.moveaxis(ct_vol, slice_axis, 0)
         mr = np.moveaxis(mr_vol, slice_axis, 0)
         if body_mask is not None:
-            # ValueError: operands could not be broadcast together with shapes (149,428,277) (428,277,149) 
             mr = mr * np.moveaxis(body_mask, slice_axis, 0)
 
         raw_mask = np.moveaxis(raw_mask_vol, slice_axis, 0)
@@ -255,18 +254,6 @@ class MetalArtifactDetector:
         Refines a 3D CT mask volume using a corresponding MR volume by performing
         a flood-fill operation on each slice. Handles small, single-pixel anomalies
         by preserving the original CT mask.
-
-        Args:
-            ct_mask_vol (np.ndarray): The 3D volume of the initial CT masks (binary, uint8).
-            mr_vol (np.ndarray): The 3D volume of the MR images.
-            lo_diff (int): The lower boundary difference from the seed pixel's value.
-            up_diff (int): The upper boundary difference from the seed pixel's value.
-                           These values determine the sensitivity to gradient changes.
-            min_contour_area (int): The minimum area of a contour to trigger the flood fill.
-                                    If a contour is smaller than this, the original mask is used.
-
-        Returns:
-            np.ndarray: The refined 3D mask volume (binary, uint8).
         """
         assert ct_mask_vol.shape == mr_vol.shape, "CT mask and MR must have the same shape"
         
@@ -288,21 +275,21 @@ class MetalArtifactDetector:
             if not contours:
                 continue
 
-            # This will store the combined result of all flood fills and preserved masks
+            # Store the combined result of all flood fills and preserved masks
             refined_mask_slice = np.zeros_like(slice_ct)
 
             for cnt in contours:
                 contour_area = cv2.contourArea(cnt)
                 
-                # Check if the contour is too small for flood fill
+                # Check if the contour is too small
                 if contour_area < min_contour_area:
-                    # If it's too small, just keep the original mask for this area
+                    # If too small, keep the original mask 
                     mask_cnt = np.zeros(slice_ct.shape, dtype=np.uint8)
                     cv2.drawContours(mask_cnt, [cnt], -1, 1, -1)
                     refined_mask_slice = np.logical_or(refined_mask_slice, mask_cnt).astype(np.uint8)
                     continue
 
-                # Calculate the centroid (x, y) coordinates for this contour
+                # Calculate the centroid (x, y) coordinates 
                 M = cv2.moments(cnt)
                 if M["m00"] == 0:
                     continue
@@ -310,7 +297,7 @@ class MetalArtifactDetector:
                 cx = int(M["m10"] / M["m00"])
                 cy = int(M["m01"] / M["m00"])
                 
-                # --- Perform the flood-fill operation for this specific contour ---
+                # Perform the flood-fill operation 
                 flood_fill_slice = slice_mr.copy().astype(np.float32)
 
                 # Create an empty mask to store the result of the flood fill.
@@ -333,15 +320,6 @@ class MetalArtifactDetector:
         """
         Morphological postprocessing for binary masks with conditional smoothing
         based on anomaly area.
-
-        Args:
-            mask2d (np.ndarray): 2D binary mask.
-            disk_size (int): Kernel size for morphological operations.
-            smooth (bool): Apply smoothing if True.
-            min_area_for_smooth (int): Minimum anomaly area to apply smoothing.
-
-        Returns:
-            np.ndarray: Postprocessed binary mask (0/1).
         """
         mask = mask2d.astype(np.uint8)
 
