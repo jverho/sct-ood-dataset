@@ -30,12 +30,12 @@ These three scripts handle the entire data preparation pipeline: dataset splitti
 #### **Common Pipeline Steps (in all drivers):**
 1.  **Dataset Splitting**: Divides the scan IDs into **train, valid, and test** sets. The valid and test sets include a mix of both normal (**good**) and abnormal (**Ungood**) scans.
 2.  **Image Processing**:
-    - Loads NIfTI (.nii.gz) CT and MR scan volumes.
-    - Applies a body mask to the MR images and performs min-max normalization.
-    - Extracts **3-channel 2D slices** based on the script's configuration.
-    - **Center-pads** all slices to a square shape, **resizes** to the target base size of **(240, 240)**, and then performs a final **center-crop to (224, 224)**.
-3.  **Anomaly Masking**: For **Ungood** scans, anomaly masks are generated using the `MetalArtifactDetector` based on HU thresholds, refined with MR data, and post-processed.
-4.  **Saves Output**: The processed 2D slices and masks are saved in the chosen format within a structured output directory (`img`, `label`, and `bodymask` subfolders for validation/test sets).
+    - Loads NIfTI (.nii.gz) CT and MR scan volumes.
+    - Applies a body mask to the MR images and performs min-max normalization.
+    - Extracts **3-channel 2D slices** based on the script's configuration.
+    - **Center-pads** all slices to a square shape, **resizes** to the target base size of **(240, 240)**, and then performs a final **center-crop to (224, 224)**.
+4.  **Anomaly Masking**: For **Ungood** scans, anomaly masks are generated using the `MetalArtifactDetector` based on HU thresholds, refined with MR data, and post-processed.
+5.  **Saves Output**: The processed 2D slices and masks are saved in the chosen format within a structured output directory (`img`, `label`, and `bodymask` subfolders for validation/test sets).
 
 ---
 
