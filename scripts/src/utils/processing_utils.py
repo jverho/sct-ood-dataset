@@ -39,9 +39,28 @@ def minmax_normalize_numpy(volume, clip_range=(0, 2000)):
         v = np.zeros_like(v)
     return v.astype(np.uint8)
 
-def extract_3ch_slice(volume, i):
-    """Used for NIfTI scripts requiring 3-channel input."""
-    return np.stack([volume[:, :, i]] * 3, axis=-1)
+def extract_3ch_slice_rep(volume, i):
+    """Extract a 3-channel slice (current, current, current)."""
+    idxs = [i, i, i]
+    return volume[:, :, idxs].copy()
+
+def extract_3ch_slice_con(volume, i, slice_index_start, slice_index_end):
+    """
+    Extract a 3-channel slice with temporal context (previous, current, next).
+    Handles boundaries by repeating the current slice if neighbors are out of bounds.
+    """
+    slices = volume.shape[2]
+    
+    # Boundary check for the very first slice in the range
+    if i == slice_index_start:
+        idxs = [i, i, i + 1]
+    # Boundary check for the very last slice in the range
+    elif i == slices + slice_index_end - 1:
+        idxs = [i - 1, i, i]
+    else:
+        idxs = [i - 1, i, i + 1]
+        
+    return volume[:, :, idxs].copy()
 
 def load_scan(dir_pelvis, det, id_, thresh_mr_mask=0.1):
     """Logic to load and prepare a volume."""
