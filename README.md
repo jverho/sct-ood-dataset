@@ -4,7 +4,7 @@ This repository contains the data preprocessing pipeline for preparing the **Syn
 
 ---
 
-## 📝 Scripts Overview
+## Scripts Overview
 The data preprocessing pipeline is now modularized into **three main driver scripts**, each tailored to a specific output format and channel configuration, and two utility scripts (`label_generator.py` and `artifact_detector.py`) used by the drivers.
 
 ---
@@ -19,29 +19,33 @@ The data preprocessing pipeline is now modularized into **three main driver scri
 ---
 
 ### Main Dataset Processing Scripts
-These three scripts handle the entire data preparation pipeline: dataset splitting, 3D volume loading, slice extraction, anomaly mask generation (for abnormal scans), padding, resizing, and saving the final 2D images and masks.
+These scripts handle the entire data preparation pipeline. Each script exists in two versions:
+* **sc_**: For **Single-Center** data processing.
+* **mc_**: For **Multi-Center** data processing.
 
-| Script Name | Output Format | Input Slice Channels | Output Size | Description |
+| Script Prefix | Output Format | Input Slice Channels | Output Size | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **dataset\_processing\_png.py** | **PNG (.png)** | Current Slice (Replicated to 3 Channels) | **(224, 224)** | Extracts the **current 2D slice**, color-maps it using **'bone'**, and saves it as a 3-channel PNG file. |
-| **dataset\_processing\_nifti\_rep.py** | **NIfTI (.nii)** | Current Slice (Replicated to 3 Channels) | **(224, 224)** | Extracts the **current 2D slice** and replicates it across 3 channels, saving the result as a 3-channel NIfTI file. |
-| **dataset\_processing\_nifti.py** | **NIfTI (.nii)** | 3 Consecutive Slices (Previous, Current, Next) | **(224, 224)** | Extracts **three consecutive 2D slices** (previous, current, next) to form a 3-channel NIfTI volume, capturing inter-slice context. |
+| **{sc/mc}_dataset_png.py** | **PNG (.png)** | 1 Slice (RGB Channels) | **(224, 224)** | Extracts the **current 2D slice**, color-maps it using **'bone'**, and saves it as a 3-channel PNG file. |
+| **{sc/mc}_dataset_nifti_rep.py** | **NIfTI (.nii)** | 1 Slice (Replicated to 3) | **(224, 224)** | Extracts the **current 2D slice** and replicates it across 3 channels, saving the result as a 3-channel NIfTI file. |
+| **{sc/mc}_dataset_nifti.py** | **NIfTI (.nii)** | 3 Consecutive Slices | **(224, 224)** | Extracts **three consecutive 2D slices** (previous, current, next) to form a 3-channel NIfTI volume, capturing inter-slice context. |
 
 #### **Common Pipeline Steps (in all drivers):**
 1.  **Dataset Splitting**: Divides the scan IDs into **train, valid, and test** sets. The valid and test sets include a mix of both normal (**good**) and abnormal (**Ungood**) scans.
 2.  **Image Processing**:
-    - Loads NIfTI (.nii.gz) CT and MR scan volumes.
-    - Applies a body mask to the MR images and performs min-max normalization.
-    - Extracts **3-channel 2D slices** based on the script's configuration.
-    - **Center-pads** all slices to a square shape, **resizes** to the target base size of **(240, 240)**, and then performs a final **center-crop to (224, 224)**.
+    * Loads NIfTI (.nii.gz) CT and MR scan volumes.
+    * Applies a body mask to the MR images and performs min-max normalization.
+    * Extracts **3-channel 2D slices** based on the script's configuration.
+    * **Center-pads** all slices to a square shape, **resizes** to the target base size of **(240, 240)**, and then performs a final **center-crop to (224, 224)**.
 3.  **Anomaly Masking**: For **Ungood** scans, anomaly masks are generated using the `MetalArtifactDetector` based on HU thresholds, refined with MR data, and post-processed.
-4.  **Saves Output**: The processed 2D slices and masks are saved in the chosen format within a structured output directory (`img`, `label`, and `bodymask` subfolders for validation/test sets).
+4.  **Saves Output**: The processed 2D slices and masks are saved in the chosen format within a structured output directory (`img`, `label`, and `bodymask` subfolders).
 
 ---
 
-## 🚀 Usage
+## Usage
 
-To run the data preprocessing pipeline, execute one of the main driver scripts. For example, to generate the NIfTI dataset using 3 consecutive slices **(224x224)**:
+To run the data preprocessing pipeline, execute the driver script corresponding to your required center type and file format.
 
+### Multi-Center Example
+To generate the Multi-Center NIfTI dataset using 3 consecutive slices:
 ```bash
-python dataset_processing_nifti.py
+python mc_dataset_nifti.py
