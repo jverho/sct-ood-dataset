@@ -8,10 +8,9 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-# Add local src to path to access utils
-sys.path.append("../scripts/src/")
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from scripts.src.utils.artifact_detector import MetalArtifactDetector
+from utils.artifact_detector import MetalArtifactDetector
 from utils.path_utils import create_output_dirs
 from utils.io_utils import save_np_to_nifti, get_ids_from_ungood_test_folder
 from utils.processing_utils import (
@@ -75,7 +74,7 @@ def process_slices(
         if abnormal_slices is None else abnormal_slices
     )
 
-    for i in tqdm(slice_indices, desc=f"{id_}-{split}-{subset}", leave=False):
+    for i in tqdm(slice_indices, desc=f"{id_}-{split}-{subset}"):
         # 1. Extract Repeated slices (i, i, i)
         slice_imgs = extract_3ch_slice_rep(mr_norm, i)
         slice_body_mask = body_mask_vol[:, :, i]
@@ -152,7 +151,7 @@ def export_full_anomalous_cases_nifti(det, ids, dir_pelvis, dir_output, anomaly_
         scan_value, _ = det.pick_global_tau_by_hu(df_hu, label_col="label")
         tau = min(scan_value - DELTA, 2000)
         mask_ref = det.refine_mask_with_mr((ct >= tau).astype(np.uint8), mr, 5, 10)
-        mask_ref = det.postprocess_mask_volume_morph(mask_ref, 5, 50, 2)
+        mask_ref = det.postprocess_mask_volume_morph(mask_ref, disk_size=5, min_area_for_smooth=50, slice_axis=2)
 
         base_path = os.path.join(dir_output, "test", "Ungood_whole_patient_scans")
         for i in tqdm(range(start_idx, end_idx), desc=f"Patient-wise NIfTI {id_}"):
@@ -216,7 +215,6 @@ if __name__ == "__main__":
     # 3. Processing
     det = MetalArtifactDetector()
     logger.info("Starting NIfTI (Repeated) Processing...")
-
     process_good_scans(det, ids_norm_train, "train", args.dir_pelvis, args.dir_output)
     process_good_scans(det, ids_norm_val, "valid", args.dir_pelvis, args.dir_output)
     process_ungood_scans(det, ids_abn_val, "valid", args.dir_pelvis, args.dir_output, anomaly_range)

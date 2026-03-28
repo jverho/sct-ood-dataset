@@ -52,7 +52,7 @@ def process_slices(
         if abnormal_slices is None else abnormal_slices
     )
 
-    for i in tqdm(slice_indices, desc=f"{id_}-{split}-{subset}", leave=False):
+    for i in tqdm(slice_indices, desc=f"{id_}-{split}-{subset}"):
         slice_img = mr_norm[:, :, i]
         slice_body_mask = body_mask_vol[:, :, i]
         slice_mask = mask_vol[:, :, i] if mask_vol is not None else np.zeros_like(slice_body_mask)
@@ -198,8 +198,8 @@ if __name__ == "__main__":
     
     logger.info("Processing Splits...")
     process_good_scans(det, ids_norm_train, "train", args.dir_pelvis, args.dir_output)
-    process_good_scans(det, ids_norm_valid, "valid", args.dir_pelvis, args.dir_output)
-    process_ungood_scans(det, ids_abn_valid, "valid", args.dir_pelvis, args.dir_output, anomaly_range)
+    process_good_scans(det, ids_norm_val, "valid", args.dir_pelvis, args.dir_output)
+    process_ungood_scans(det, ids_abn_val, "valid", args.dir_pelvis, args.dir_output, anomaly_range)
     process_good_scans(det, ids_norm_test, "test", args.dir_pelvis, args.dir_output)
     process_ungood_scans(det, ids_abn_test, "test", args.dir_pelvis, args.dir_output, anomaly_range)
 

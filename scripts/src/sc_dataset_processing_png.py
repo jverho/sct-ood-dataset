@@ -73,7 +73,7 @@ def process_slices(
         if abnormal_slices is None else abnormal_slices
     )
 
-    for i in tqdm(slice_indices, desc=f"{id_}-{split}-{subset}", leave=False):
+    for i in tqdm(slice_indices, desc=f"{id_}-{split}-{subset}"):
         slice_img = mr_norm[:, :, i]
         slice_body_mask = body_mask_vol[:, :, i]
         slice_mask = mask_vol[:, :, i] if mask_vol is not None else np.zeros_like(slice_body_mask)

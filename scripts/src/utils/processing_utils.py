@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import cv2
-from .io_utils import load_nifti_image, apply_mask # Relative import
+from .io_utils import load_nifti_image
 
 def apply_mask(mr_image, mask):
     return mr_image * (mask > 0).astype(mr_image.dtype)

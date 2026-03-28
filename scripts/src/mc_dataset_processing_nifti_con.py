@@ -8,9 +8,9 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-sys.path.append("../scripts/src/")
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from scripts.src.utils.artifact_detector import MetalArtifactDetector
+from utils.artifact_detector import MetalArtifactDetector
 from utils.path_utils import create_output_dirs
 from utils.io_utils import save_np_to_nifti, get_ids_from_ungood_test_folder
 from utils.processing_utils import (
@@ -72,7 +72,7 @@ def process_slices(
         if abnormal_slices is None else abnormal_slices
     )
 
-    for i in tqdm(slice_indices, desc=f"{id_}-{split}-{subset}", leave=False):
+    for i in tqdm(slice_indices, desc=f"{id_}-{split}-{subset}"):
         # 1. Extract Consecutive slices with boundary safety
         slice_imgs = extract_3ch_slice_con(mr_norm, i, start_idx, end_offset)
         slice_body_mask = body_mask_vol[:, :, i]
@@ -128,7 +128,7 @@ def process_ungood_scans(det, ids, split, dir_pelvis, dir_output, anomaly_range)
 
         mask_vol = (ct >= tau).astype(np.uint8)
         mask_ref = det.refine_mask_with_mr(mask_vol, mr, lo_diff=5, up_diff=10)
-        mask_ref = det.postprocess_mask_volume_morph(mask_ref, 5, 50, 2)
+        mask_ref = det.postprocess_mask_volume_morph(mask_ref, disk_size=5, min_area_for_smooth=50, slice_axis=2)
 
         safe_slices = [i for i in ab_indices if 15 <= i < slices - 15]
         process_slices(mr_norm, body_mask_vol, id_, split, "Ungood", dir_output, mask_vol=mask_ref, abnormal_slices=safe_slices)
@@ -149,7 +149,7 @@ def export_full_anomalous_cases_nifti(det, ids, dir_pelvis, dir_output, anomaly_
         scan_value, _ = det.pick_global_tau_by_hu(df_hu, label_col="label")
         tau = min(scan_value - DELTA, 2000)
         mask_ref = det.refine_mask_with_mr((ct >= tau).astype(np.uint8), mr, 5, 10)
-        mask_ref = det.postprocess_mask_volume_morph(mask_ref, 5, 50, 2)
+        mask_ref = det.postprocess_mask_volume_morph(mask_ref, disk_size=5, min_area_for_smooth=50, slice_axis=2)
 
         base_path = os.path.join(dir_output, "test", "Ungood_whole_patient_scans")
         for i in tqdm(range(start_idx, end_idx), desc=f"Patient-wise MC-NIfTI {id_}"):
