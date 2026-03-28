@@ -8,18 +8,19 @@ import logging
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from PIL import Image
+import argparse
 
 
 sys.path.append("../scripts/src/")
 
 from artifact_detector import MetalArtifactDetector
 from utils.processing_utils import (
-    load_nifti_image,
-    apply_mask,
     center_pad_single_slice,
     center_pad_single_slice_by_params,
     resize_image,
-    minmax_normalize_numpy,
+    get_ids_from_ungood_test_folder,
+    center_crop,
+    load_scan,
 )
 from utils.path_utils import create_output_dirs
 
@@ -27,33 +28,23 @@ from utils.path_utils import create_output_dirs
 # ================================================================
 # CONFIGURATION
 # ================================================================
-DIR_PELVIS = "/local/scratch/jverhoek/datasets/Task1/pelvis/"
-DIR_OUTPUT = os.path.join("/local/scratch/jverhoek/datasets", "synth23_pelvis_v7_png")
-
 DELTA = 200
-THRESH_MR_MASK = 0.1
 SLICE_INDEX_START_NORMAL = 25
 SLICE_INDEX_END_NORMAL = -20
-
+TARGET_SIZE = (240, 240)
 SEED = 24
 random.seed(SEED)
 np.random.seed(SEED)
-
-TARGET_SIZE = (240, 240)
-TARGET_SIZE_CROP = (224, 224)
-EXCEL_OVERVIEW = "/local/scratch/jverhoek/datasets/Task1/pelvis/overview/1_pelvis_train.xlsx"
 
 
 # ================================================================
 # HELPER FUNCTIONS
 # ================================================================
-def center_crop(slice_, target_size=TARGET_SIZE_CROP):
-    """Crop the center region of a slice."""
-    h, w = slice_.shape
-    th, tw = target_size
-    i = int(round((h - th) / 2.0))
-    j = int(round((w - tw) / 2.0))
-    return slice_[i:i + th, j:j + tw]
+def parse_args():
+    parser = argparse.ArgumentParser(description="PNG pelvis preprocessing")
+    parser.add_argument("--dir_pelvis", type=str, required=True)
+    parser.add_argument("--dir_output", type=str, required=True)
+    return parser.parse_args()
 
 
 def save_png(image, path, cmap="bone"):
@@ -66,7 +57,6 @@ def save_png(image, path, cmap="bone"):
     if cmap == "binary":
         # 1. Binarize and convert to 8-bit integer (0 or 255)
         # Assuming the input 'image' array is already 0/1 or similar.
-        # This is CRUCIAL for ensuring the background is saved as 0.
         img_data = (image > 0).astype(np.uint8) * 255
 
         # 2. Save using Pillow in L (8-bit grayscale) mode.
@@ -76,22 +66,6 @@ def save_png(image, path, cmap="bone"):
         # Use Matplotlib for images that require a colormap (like 'bone' for MR).
         # This is safe for the MR images as they are not used for pixel-wise metrics.
         plt.imsave(path, image, cmap=cmap)
-
-
-def load_scan(det, id_):
-    """Load MR, CT, and mask volumes and return both raw and normalized MR + body mask."""
-    dir_scan = os.path.join(DIR_PELVIS, id_)
-    mr = load_nifti_image(os.path.join(dir_scan, "mr.nii.gz"))
-    ct = load_nifti_image(os.path.join(dir_scan, "ct.nii.gz"))
-    mask = load_nifti_image(os.path.join(dir_scan, "mask.nii.gz"))
-
-    body_mask_vol = det.get_body_mask_threshold(mr * mask, threshold_ct_body_mask=THRESH_MR_MASK)
-    body_mask_vol = np.logical_and(body_mask_vol > 0, mask > 0).astype(np.uint8)
-
-    masked_mr = apply_mask(mr, body_mask_vol)
-    mr_norm = minmax_normalize_numpy(masked_mr)
-
-    return mr, mr_norm, ct, body_mask_vol
 
 
 # ================================================================
@@ -156,15 +130,15 @@ def process_slices(
 # ================================================================
 # SPLIT HANDLERS
 # ================================================================
-def process_good_scans(det, ids, split, output_dir):
+def process_good_scans(det, ids, split, dir_pelvis, dir_output):
     for id_ in ids:
-        mr, mr_norm, _, body_mask_vol = load_scan(det, id_)
-        process_slices(mr_norm, body_mask_vol, id_, split, "good", output_dir)
+        mr, mr_norm, _, body_mask_vol = load_scan(dir_pelvis, det, id_)
+        process_slices(mr_norm, body_mask_vol, id_, split, "good", dir_output)
 
 
-def process_ungood_scans(det, ids, split, output_dir, anomaly_range):
+def process_ungood_scans(det, ids, split, dir_pelvis, dir_output, anomaly_range):
     for id_ in ids:
-        mr, mr_norm, ct, body_mask_vol = load_scan(det, id_)
+        mr, mr_norm, ct, body_mask_vol = load_scan(dir_pelvis, det, id_)
         slices = mr_norm.shape[2]
         abnormal_slices = list(range(anomaly_range[id_][0], anomaly_range[id_][-1]))
 
@@ -172,7 +146,7 @@ def process_ungood_scans(det, ids, split, output_dir, anomaly_range):
         df_hu = det.score_volume_hu(ct, scan_id=id_, slice_axis=2)
         df_hu["label"] = np.isin(df_hu["slice_idx"], abnormal_slices).astype(np.uint8)
         scan_value, _ = det.pick_global_tau_by_hu(df_hu, label_col="label")
-        scan_value -= DELTA                   # <- restore original logic
+        scan_value -= DELTA                   
         tau = min(scan_value, 2000)
 
         mask_vol = (ct >= tau).astype(np.uint8)
@@ -181,19 +155,19 @@ def process_ungood_scans(det, ids, split, output_dir, anomaly_range):
         mask_ref = det.refine_mask_with_mr(mask_vol, mr, lo_diff=5, up_diff=10)
         mask_ref = det.postprocess_mask_volume_morph(mask_ref, disk_size=5, min_area_for_smooth=50, slice_axis=2)
 
-        process_slices(mr_norm, body_mask_vol, id_, split, "Ungood", output_dir, mask_vol=mask_ref, abnormal_slices=abnormal_slices)
+        process_slices(mr_norm, body_mask_vol, id_, split, "Ungood", dir_output, mask_vol=mask_ref, abnormal_slices=abnormal_slices)
 
 
 # ================================================================
-# EXPORT FULL ANOMALOUS TEST CASES - PATIENT-WISE (PNG)
+# EXPORT FULL ANOMALOUS TEST CASES - PATIENT-WISE
 # ================================================================
-def export_full_anomalous_cases_png(det, ids, output_dir, anomaly_range):
+def export_full_anomalous_cases_png(det, ids, dir_pelvis, dir_output, anomaly_range):
     """
     For each test anomalous scan, save all slices (except first 30 & last 15)
     in patient-wise folders: img (MR), label (mask), bodymask, as PNG.
     """
     for id_ in ids:
-        mr, mr_norm, ct, body_mask_vol = load_scan(det, id_)
+        mr, mr_norm, ct, body_mask_vol = load_scan(dir_pelvis, det, id_)
         slices = mr_norm.shape[2]
         start_idx = 10
         end_idx = slices - 5
@@ -212,11 +186,13 @@ def export_full_anomalous_cases_png(det, ids, output_dir, anomaly_range):
         mask_ref = det.postprocess_mask_volume_morph(mask_ref, disk_size=5, min_area_for_smooth=50, slice_axis=2)
 
         # Create patient-wise folders
-        base_path = os.path.join(output_dir, "test", "Ungood_whole_patient_scans")
+        base_path = os.path.join(dir_output, "test", "Ungood_whole_patient_scans")
         for subdir in ("img", "label", "bodymask"):
             os.makedirs(os.path.join(base_path, subdir), exist_ok=True)
 
         for i in tqdm(range(start_idx, end_idx), desc=f"patientwise_anom_test_png_{id_}"):
+            # Process each slice the same (including the ground thruth and body mask)
+            # Body mask is also processed to be able to be used in the postprocessing
             slice_img = mr_norm[:, :, i]
             slice_body_mask = body_mask_vol[:, :, i]
             slice_mask = mask_ref[:, :, i]
@@ -235,47 +211,21 @@ def export_full_anomalous_cases_png(det, ids, output_dir, anomaly_range):
             save_png(slice_body_mask_cropped, os.path.join(base_path, "bodymask", f"{id_}_{i}.png"), cmap="binary")
 
 
-def get_ids_from_ungood_test_folder(output_dir):
-    """
-    Look into DIR_OUTPUT/test/Ungood/img and infer unique patient IDs
-    from filenames like '<ID>_<slice>.nii', '.nii.gz', or '.png'.
-    """
-    img_dir = os.path.join(output_dir, "test", "Ungood", "img")
-    if not os.path.isdir(img_dir):
-        return set()
-
-    ids = set()
-    for fname in os.listdir(img_dir):
-        # accept NIfTI and PNG images
-        if not fname.endswith((".nii", ".nii.gz", ".png")):
-            continue
-
-        stem = fname
-        if stem.endswith(".nii.gz"):
-            stem = stem[:-7]
-        elif stem.endswith(".nii"):
-            stem = stem[:-4]
-        elif stem.endswith(".png"):
-            stem = stem[:-4]
-
-        parts = stem.split("_")
-        if len(parts) < 2:
-            continue
-        pid = "_".join(parts[:-1])
-        ids.add(pid)
-
-    return ids
-
 # ================================================================
 # MAIN
 # ================================================================
 if __name__ == "__main__":
+    args = parse_args()
+    dir_pelvis = args.dir_pelvis
+    dir_output = args.dir_output
+    excel_overview = os.path.join(dir_pelvis, "overview", "1_pelvis_train.xlsx")
+
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
-    create_output_dirs(DIR_OUTPUT)
+    create_output_dirs(dir_output)
 
     # ---------------- Load IDs and splits ----------------
-    df_overview = pd.read_excel(EXCEL_OVERVIEW, sheet_name="MR")
+    df_overview = pd.read_excel(excel_overview, sheet_name="MR")
     ids_all = [i for i in df_overview["ID"].tolist() if i.startswith("1PA")]
 
     with open("/home/user/jverhoek/sct-ood-dataset/labels/labels_implant.json") as f:
@@ -333,27 +283,27 @@ if __name__ == "__main__":
     det = MetalArtifactDetector()
 
     logger.info("=== TRAIN GOOD ===")
-    process_good_scans(det, ids_normal_train, "train", DIR_OUTPUT)
+    process_good_scans(det, ids_normal_train, "train", dir_pelvis, dir_output)
 
     logger.info("=== VALID GOOD ===")
-    process_good_scans(det, ids_normal_valid, "valid", DIR_OUTPUT)
+    process_good_scans(det, ids_normal_valid, "valid", dir_pelvis, dir_output)
 
     logger.info("=== VALID UNGOOD ===")
-    process_ungood_scans(det, ids_abnormal_valid, "valid", DIR_OUTPUT, anomaly_range)
+    process_ungood_scans(det, ids_abnormal_valid, "valid", dir_pelvis, dir_output, anomaly_range)
 
     logger.info("=== TEST GOOD ===")
-    process_good_scans(det, ids_normal_test, "test", DIR_OUTPUT)
+    process_good_scans(det, ids_normal_test, "test", dir_pelvis, dir_output)
 
     logger.info("=== TEST UNGOOD ===")
-    process_ungood_scans(det, ids_abnormal_test, "test", DIR_OUTPUT, anomaly_range)
+    process_ungood_scans(det, ids_abnormal_test, "test", dir_pelvis, dir_output, anomaly_range)
 
     logger.info("Finished all splits - NIFTI dataset created.")
 
     # Only patients that actually have slices saved in test/Ungood
-    ids_with_ungood_slices = get_ids_from_ungood_test_folder(DIR_OUTPUT)
+    ids_with_ungood_slices = get_ids_from_ungood_test_folder(dir_output)
     ids_abnormal_test_effective = sorted(ids_with_ungood_slices.intersection(ids_abnormal_test))
 
     logger.info(f"Test Ungood patients on disk: {len(ids_abnormal_test_effective)}")
 
-    export_full_anomalous_cases_png(det, ids_abnormal_test_effective, DIR_OUTPUT, anomaly_range)
+    export_full_anomalous_cases_png(det, ids_abnormal_test_effective, dir_pelvis, dir_output, anomaly_range)
     logger.info("✅ Finished - PATIENT-WISE ANOMALOUS TEST CASES")

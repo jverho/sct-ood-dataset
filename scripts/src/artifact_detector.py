@@ -5,7 +5,6 @@ import cv2
 from skimage import morphology, measure
 from scipy.ndimage import binary_erosion, binary_dilation
 
-import matplotlib.pyplot as plt
 
 
 class MetalArtifactDetector:
@@ -124,105 +123,6 @@ class MetalArtifactDetector:
     def extract_mask_volume(self, vol, tau, slice_axis=0):
         return (vol >= tau).astype(np.uint8)
 
-    def postprocess_mask(self, mask2d, min_hole_size=20, smooth=True, disk_size=3):
-        mask = mask2d.astype(bool)
-
-        mask = morphology.remove_small_holes(mask, area_threshold=min_hole_size)
-
-        if smooth:
-            selem = morphology.disk(disk_size)
-            mask = morphology.binary_opening(mask, selem)
-            mask = morphology.binary_closing(mask, selem)
-
-        return mask.astype(np.uint8)
-
-    def postprocess_mask_volume(self, mask_vol, slice_axis=0,
-                                min_hole_size=20, smooth=True, disk_size=0):
-        vol_z = np.moveaxis(mask_vol, slice_axis, 0)
-        out_z = []
-        for z in range(vol_z.shape[0]):
-            out_z.append(self.postprocess_mask(vol_z[z],
-                                               min_hole_size=min_hole_size,
-                                               smooth=smooth,
-                                               disk_size=disk_size))
-        out = np.stack(out_z, axis=0)
-        return np.moveaxis(out, 0, slice_axis)
-    
-    def show_ct_mask_mr(
-        self, ct_vol, mr_vol, raw_mask_vol, post_mask_vol, slice_indices,
-        body_mask = None,
-        slice_axis=0, suptitle="CT (raw vs postprocessed mask) & MR",
-        ct_hu_window=None, ct_clip_quantiles=None,
-        mr_clip_quantiles=None,
-        fill_alpha=0.6, outline_width=1.5,
-        raw_color=(0.0, 0, 1.0),   # blue
-        post_color=(0.0, 1.0, 0.0), # green
-        outline_color="red",
-        figsize=(12, 3)
-    ):
-        if isinstance(slice_indices, int):
-            slice_indices = [slice_indices]
-
-        ct = np.moveaxis(ct_vol, slice_axis, 0)
-        mr = np.moveaxis(mr_vol, slice_axis, 0)
-        if body_mask is not None:
-            mr = mr * np.moveaxis(body_mask, slice_axis, 0)
-
-        raw_mask = np.moveaxis(raw_mask_vol, slice_axis, 0)
-        post_mask = np.moveaxis(post_mask_vol, slice_axis, 0)
-
-        print(ct.shape, mr.shape, raw_mask.shape, post_mask.shape)
-        assert ct.shape == mr.shape == raw_mask.shape == post_mask.shape, "Shapes must match"
-
-        n = len(slice_indices)
-        fig, axs = plt.subplots(n, 3, figsize=(figsize[0], figsize[1] * n))
-
-        if n == 1:
-            axs = np.expand_dims(axs, 0)
-
-        for i, z in enumerate(slice_indices):
-            ct_img = self._norm01(ct[z], hu_window=ct_hu_window, clip_quantiles=ct_clip_quantiles)
-            mr_img = self._norm01(mr[z], clip_quantiles=mr_clip_quantiles)
-            raw_mask_img = raw_mask[z].astype(bool)
-            post_mask_img = post_mask[z].astype(bool)
-
-            ct_img  = np.rot90(ct_img,  k=-1)
-            mr_img  = np.rot90(mr_img,  k=-1)
-            raw_mask_img  = np.rot90(raw_mask_img,  k=-1)
-            post_mask_img = np.rot90(post_mask_img, k=-1)
-
-            # CT + raw mask
-            axs[i, 0].imshow(ct_img, cmap="gray")
-            overlay_raw = np.zeros((*raw_mask_img.shape, 4), dtype=float)
-            r, g, b = raw_color
-            overlay_raw[raw_mask_img] = [r, g, b, float(fill_alpha)]
-            axs[i, 0].imshow(overlay_raw)
-            contours = measure.find_contours(raw_mask_img, level=0.5)
-            for contour in contours:
-                axs[i, 0].plot(contour[:, 1], contour[:, 0], color=outline_color, linewidth=outline_width)
-            axs[i, 0].set_title(f"Raw Mask+CT z={z}")
-            axs[i, 0].axis("off")
-
-            # CT + postprocessed mask
-            axs[i, 1].imshow(ct_img, cmap="gray")
-            overlay_post = np.zeros((*post_mask_img.shape, 4), dtype=float)
-            r, g, b = post_color
-            overlay_post[post_mask_img] = [r, g, b, float(fill_alpha)]
-            axs[i, 1].imshow(overlay_post)
-            contours = measure.find_contours(post_mask_img, level=0.5)
-            for contour in contours:
-                axs[i, 1].plot(contour[:, 1], contour[:, 0], color=outline_color, linewidth=outline_width)
-            axs[i, 1].set_title(f"Post Mask+CT z={z}")
-            axs[i, 1].axis("off")
-
-            # MR
-            axs[i, 2].imshow(mr_img, cmap="gray")
-            axs[i, 2].set_title(f"MR z={z}")
-            axs[i, 2].axis("off")
-
-        plt.suptitle(suptitle, fontsize=14)
-        plt.tight_layout()
-        plt.show()
 
     def get_mask_biggest_contour(self, mask_ct):
         for i in range(mask_ct.shape[2]):
